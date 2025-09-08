@@ -1,67 +1,60 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider,useAuth } from "./context/AuthContext";
 import Login from "./components/Login";
-import AdminDashboard from "./pages/AdminDashboard";
-import ManagerDashboard from "./pages/ManagerDashboard";
-import StaffDashboard from "./pages/StaffDashboard";
+import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./routes/ProtectedRoute";
-
-function RedirectIfLoggedIn({ children }) {
-  const { user } = useAuth();
-
-  if (!user) return children; // not logged in → show login
-  if (user.role === "Admin") return <Navigate to="/admin" replace />;
-  if (user.role === "Manager") return <Navigate to="/manager" replace />;
-  if (user.role === "Staff") return <Navigate to="/staff" replace />;
-
-  return children; // fallback
-}
+import Products from "./pages/Products";
+import Suppliers from "./pages/Suppliers";
+import Orders from "./pages/Orders";
+import Transactions from "./pages/Transactions";
+import Alerts from "./pages/Alerts";
+import Managers from "./pages/Managers";
+import Staff from "./pages/Staff";
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
-          {/* Login route auto-redirects if already logged in */}
-          <Route
-            path="/"
-            element={
-              <RedirectIfLoggedIn>
-                <Login />
-              </RedirectIfLoggedIn>
-            }
-          />
+       <Routes>
+  {/* Public route */}
+  <Route path="/login" element={<LoginRedirect />} />
 
-          <Route
-            path="/admin"
-            element={
-              <ProtectedRoute allowedRoles={["Admin"]}>
-                <AdminDashboard />
-              </ProtectedRoute>
-            }
-          />
+  {/* Protected Dashboard */}
+  <Route
+    path="/dashboard"
+    element={
+      <ProtectedRoute>
+        <Dashboard />
+      </ProtectedRoute>
+    }
+  >
+    {/* Nested routes rendered in <Outlet /> */}
+    <Route path="products" element={<Products />} />
+    <Route path="suppliers" element={<Suppliers />} />
+    <Route path="orders" element={<Orders />} />
+    <Route path="transactions" element={<Transactions />} />
+    <Route path="alerts" element={<Alerts />} />
 
-          <Route
-            path="/manager"
-            element={
-              <ProtectedRoute allowedRoles={["Manager"]}>
-                <ManagerDashboard />
-              </ProtectedRoute>
-            }
-          />
+    {/* Admin-only */}
+    <Route path="users/managers" element={<Managers />} />
+    <Route path="users/staff" element={<Staff />} />
 
-          <Route
-            path="/staff"
-            element={
-              <ProtectedRoute allowedRoles={["Staff"]}>
-                <StaffDashboard />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+    {/* Default child route */}
+    <Route index element={<Products />} />  {/* loads Products by default */}
+  </Route>
+
+  {/* Catch-all redirect */}
+  <Route path="*" element={<Navigate to="/login" />} />
+</Routes>
+
       </BrowserRouter>
     </AuthProvider>
   );
+}
+
+function LoginRedirect() {
+  const { user } = useAuth();
+  return user ? <Navigate to="/dashboard" /> : <Login />;
 }
 
 export default App;

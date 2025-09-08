@@ -8,10 +8,15 @@ export const register = async (req, res) => {
   try {
     const { username, password, firstName, lastName, role, phone, email } = req.body;
 
-    // check if user exists
-    const existingUser = await User.findOne({ username });
+    // Validate required fields
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ msg: "Email, password, firstName, and lastName are required" });
+    }
+
+    // check if email already exists
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ msg: "Username already exists" });
+      return res.status(400).json({ msg: "Email already exists" });
     }
 
     // hash password
@@ -24,14 +29,14 @@ export const register = async (req, res) => {
       password: hashedPassword,
       firstName,
       lastName,
-      role,
+      role,   // ✅ will auto-lowercase from schema
       phone,
       email
     });
 
     res.status(201).json({
       msg: "User registered successfully",
-      user: { id: user._id, username: user.username, role: user.role }
+      user: { id: user._id, email: user.email, username: user.username, role: user.role }
     });
   } catch (err) {
     console.error(err);
@@ -39,14 +44,18 @@ export const register = async (req, res) => {
   }
 };
 
-// @desc   Login user
+// @desc   Login user with email
 // @route  POST /api/auth/login
 export const login = async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
-    // find user
-    const user = await User.findOne({ username });
+    if (!email || !password) {
+      return res.status(400).json({ msg: "Email and password are required" });
+    }
+
+    // find user by email
+    const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ msg: "Invalid credentials" });
 
     // compare password
@@ -63,7 +72,7 @@ export const login = async (req, res) => {
     res.json({
       msg: "Login successful",
       token,
-      user: { id: user._id, username: user.username, role: user.role }
+      user: { id: user._id, email: user.email, username: user.username, role: user.role }
     });
   } catch (err) {
     console.error(err);
