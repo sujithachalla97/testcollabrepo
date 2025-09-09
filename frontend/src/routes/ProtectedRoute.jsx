@@ -5,7 +5,11 @@ import { useAuth } from "../context/AuthContext";
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
 
-  if (!user) {
+  // fallback: also check localStorage
+  const storedUser = localStorage.getItem("user");
+  const finalUser = user || (storedUser ? JSON.parse(storedUser) : null);
+
+  if (!finalUser) {
     // not logged in → redirect to login
     return <Navigate to="/login" replace />;
   }
