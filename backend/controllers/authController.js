@@ -107,3 +107,18 @@ export const me = async (req, res) => {
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 };
+
+// backend/controllers/authController.js
+export const updateMe = async (req, res) => {
+  try {
+    // Example: update user's own profile
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id, 
+      req.body, 
+      { new: true, runValidators: true }
+    );
+    res.json({ success: true, data: updatedUser });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
