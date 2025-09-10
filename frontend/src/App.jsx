@@ -1,5 +1,6 @@
+// src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider,useAuth } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import Login from "./components/Login";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -11,44 +12,46 @@ import Alerts from "./pages/Alerts";
 import Managers from "./pages/Managers";
 import Staff from "./pages/Staff";
 import Profile from "./pages/Profile";
+import StaffAnalysis from "./pages/StaffAnalysis";
+import ManagerAnalysis from "./pages/ManagerAnalysis";
+import AdminAnalysis from "./pages/AdminAnalysis";
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-       <Routes>
-  {/* Public route */}
-  <Route path="/login" element={<LoginRedirect />} />
+        <Routes>
+          <Route path="/login" element={<LoginRedirect />} />
 
-  {/* Protected Dashboard */}
-  <Route
-    path="/dashboard"
-    element={
-      <ProtectedRoute>
-        <Dashboard />
-      </ProtectedRoute>
-    }
-  >
-    {/* Nested routes rendered in <Outlet /> */}
-    <Route path="products" element={<Products />} />
-    <Route path="suppliers" element={<Suppliers />} />
-    <Route path="orders" element={<Orders />} />
-    <Route path="transactions" element={<Transactions />} />
-    <Route path="alerts" element={<Alerts />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Products />} />
+            <Route path="products" element={<Products />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="orders" element={<Orders />} />
+            <Route path="transactions" element={<Transactions />} />
+            <Route path="alerts" element={<Alerts />} />
 
-    {/* Admin-only */}
-    <Route path="users/managers" element={<Managers />} />
-    <Route path="users/staff" element={<Staff />} />
-      <Route path="profile" element={<Profile />} />
+            {/* Role-specific analysis pages rendered inside Dashboard layout */}
+            <Route path="staff" element={<StaffAnalysis />} />
+            <Route path="manager" element={<ManagerAnalysis />} />
+            <Route path="admin" element={<AdminAnalysis />} />
 
-    {/* Default child route */}
-    <Route index element={<Products />} />  {/* loads Products by default */}
-  </Route>
+            <Route path="users/managers" element={<Managers />} />
+            <Route path="users/staff" element={<Staff />} />
 
-  {/* Catch-all redirect */}
-  <Route path="*" element={<Navigate to="/login" />} />
-</Routes>
+            <Route path="profile" element={<Profile />} />
+          </Route>
 
+          {/* fallback */}
+          <Route path="*" element={<SmartFallback />} />
+        </Routes>
       </BrowserRouter>
     </AuthProvider>
   );
@@ -56,7 +59,23 @@ function App() {
 
 function LoginRedirect() {
   const { user } = useAuth();
-  return user ? <Navigate to="/dashboard" /> : <Login />;
+  if (!user) return <Login />;
+
+  const role = (user.role || "").toLowerCase();
+  if (role === "staff") return <Navigate to="/dashboard/staff" replace />;
+  if (role === "manager") return <Navigate to="/dashboard/manager" replace />;
+  if (role === "admin") return <Navigate to="/dashboard/admin" replace />;
+  return <Navigate to="/dashboard" replace />;
+}
+
+function SmartFallback() {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  const role = (user.role || "").toLowerCase();
+  if (role === "staff") return <Navigate to="/dashboard/staff" replace />;
+  if (role === "manager") return <Navigate to="/dashboard/manager" replace />;
+  if (role === "admin") return <Navigate to="/dashboard/admin" replace />;
+  return <Navigate to="/dashboard" replace />;
 }
 
 export default App;

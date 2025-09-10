@@ -368,7 +368,7 @@ export default function Products() {
     return lines.join("\n");
   };
   const handleExportCSV = () => {
-    if (!canModify) return toast.info("No permission");
+    
     if (!products || products.length === 0) return toast.info("No products to export");
     const csv = toCSV(products);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -450,7 +450,7 @@ export default function Products() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={handleExportCSV} className={`px-3 py-1 rounded border ${!canModify ? "opacity-50 cursor-not-allowed" : ""}`} disabled={!canModify}>Export CSV</button>
+              <button onClick={handleExportCSV} className={`px-3 py-1 rounded border `} >Export CSV</button>
             </div>
           </div>
 
