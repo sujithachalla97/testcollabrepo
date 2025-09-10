@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
+
 // @desc   Register new user
 // @route  POST /api/auth/register
 export const register = async (req, res) => {
@@ -77,5 +78,32 @@ export const login = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Server error" });
+  }
+};
+
+
+export const me = async (req, res) => {
+  try {
+    const id = req.user?.id;
+    if (!id) return res.status(401).json({ ok: false, error: "Not authenticated" });
+    const u = await User.findById(id).lean();
+    if (!u) return res.status(404).json({ ok: false, error: "User not found" });
+
+    // return only safe fields
+    return res.json({
+      ok: true,
+      user: {
+        id: u._id,
+        username: u.username,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        phone: u.phone,
+      }
+    });
+  } catch (err) {
+    console.error("GET /auth/me error", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 };

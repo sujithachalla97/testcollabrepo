@@ -1,73 +1,75 @@
-import { createContext, useContext, useState, useEffect } from "react";
-import axiosInstance from "../api/axiosInstance";
+// src/contexts/AuthContext.jsx
+import React, { createContext, useContext, useEffect, useState } from "react";
+import axios from "../api/axiosInstance";
+import { getStoredUser, getStoredToken, setAuth, clearAuth } from "../lib/auth";
 
 const AuthContext = createContext();
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    const storedUser = localStorage.getItem("user");
-    return storedUser ? JSON.parse(storedUser) : null;
-  });
-  const [token, setToken] = useState(localStorage.getItem("token") || null);
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(() => getStoredUser());
+  const [loading, setLoading] = useState(true);
 
-  // 🔑 Login
-  const login = async (email, password) => {
-    try {
-      const res = await axiosInstance.post("/auth/login", { email, password });
-
-      // Save token + user in localStorage
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("role", res.data.user.role);
-      localStorage.setItem("user", JSON.stringify(res.data.user));
-
-      setUser(res.data.user);
-      setToken(res.data.token);
-
-      return res.data;
-    } catch (err) {
-      throw new Error(err.response?.data?.msg || "Login failed");
-    }
-  };
-
-  // 🔑 Register
-  const register = async (data) => {
-    try {
-      const res = await axiosInstance.post("/auth/register", data);
-      return res.data;
-    } catch (err) {
-      throw new Error(err.response?.data?.msg || "Registration failed");
-    }
-  };
-
-  // 🔑 Logout
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("user");
-    setUser(null);
-    setToken(null);
-  };
-
-  // 🔑 Keep user logged in on refresh
+  // initialize on app start
   useEffect(() => {
-    if (token && !user) {
-      axiosInstance
-        .get("/auth/me")
-        .then((res) => {
-          setUser(res.data.user || res.data);
-          localStorage.setItem("user", JSON.stringify(res.data.user || res.data));
-        })
-        .catch(() => {
-          logout();
-        });
+    let mounted = true;
+    const token = getStoredToken();
+    if (token) {
+      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+      // fetch canonical user from server to ensure up-to-date data
+      (async () => {
+        try {
+          const res = await axios.get("/auth/me").then(r => r.data);
+          if (!mounted) return;
+          if (res?.ok && res.user) {
+            setUser(res.user);
+            setAuth({ user: res.user, token }); // ensure storage/header synced
+          } else {
+            // fallback to stored user if server returned not-ok
+            const stored = getStoredUser();
+            setUser(stored);
+          }
+        } catch (err) {
+          // couldn't reach server (offline or token invalid); fallback to stored
+          setUser(getStoredUser());
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      })();
+    } else {
+      // no token, ensure cleared state
+      clearAuth();
+      setUser(null);
+      setLoading(false);
     }
-  }, [token]);
+    return () => { mounted = false; };
+  }, []);
+
+  // login helper: store and set header + context
+  const login = ({ user: newUser, token }) => {
+    setAuth({ user: newUser, token });
+    setUser(newUser);
+  };
+
+  // logout helper
+  const logout = () => {
+    clearAuth();
+    setUser(null);
+  };
+
+  // update user in context + localStorage (used after profile edit)
+  const updateUser = (updatedUser) => {
+    const token = getStoredToken();
+    setAuth({ user: updatedUser, token });
+    setUser(updatedUser);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout ,setUser}}>
+    <AuthContext.Provider value={{ user, setUser: updateUser, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  return useContext(AuthContext);
+}

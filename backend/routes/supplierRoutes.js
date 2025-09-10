@@ -14,5 +14,6 @@ router.get("/", getSuppliers);
 router.get("/:id", getSupplier);
 router.put("/:id", updateSupplier);
 router.delete("/:id", deleteSupplier);
+router.patch("/:id", updateSupplier);
 
 export default router;

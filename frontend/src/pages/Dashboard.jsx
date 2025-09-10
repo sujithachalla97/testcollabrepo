@@ -26,6 +26,12 @@ export default function Dashboard() {
     { to: "users/staff", label: "Staff" },
   ];
 
+  const displayName = (() => {
+    if (!user) return null;
+    const firstLast = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
+    return firstLast || user?.username || user?.email || null;
+  })();
+
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
       {/* Desktop sidebar */}
@@ -38,9 +44,7 @@ export default function Dashboard() {
           <div>
             <div className="mb-6">
               <div className="text-2xl font-extrabold text-indigo-600">TIMS</div>
-              <div className="text-xs text-gray-500 mt-1">
-                Inventory management
-              </div>
+              <div className="text-xs text-gray-500 mt-1">Inventory management</div>
             </div>
 
             <nav className="space-y-2">
@@ -50,9 +54,7 @@ export default function Dashboard() {
                   to={item.to}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium ${
-                      isActive
-                        ? "bg-indigo-50 text-indigo-700"
-                        : "text-gray-700 hover:bg-gray-100"
+                      isActive ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-100"
                     }`
                   }
                 >
@@ -76,9 +78,7 @@ export default function Dashboard() {
                       to={item.to}
                       className={({ isActive }) =>
                         `block px-3 py-2 rounded-lg text-sm font-medium ${
-                          isActive
-                            ? "bg-cyan-50 text-cyan-700"
-                            : "text-gray-700 hover:bg-gray-100"
+                          isActive ? "bg-cyan-50 text-cyan-700" : "text-gray-700 hover:bg-gray-100"
                         }`
                       }
                     >
@@ -108,16 +108,14 @@ export default function Dashboard() {
                 stroke="currentColor"
                 strokeWidth="1.8"
               >
-                <path
-                  d="M4 7h16M4 12h16M4 17h16"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
             <div>
               <div className="text-lg font-semibold text-gray-900">TIMS</div>
-              <div className="text-xs text-gray-500">{user?.email ?? ""}</div>
+              <div className="text-xs text-gray-500">
+                {user?.email ? user.email : ""}
+              </div>
             </div>
           </div>
 
@@ -141,9 +139,7 @@ export default function Dashboard() {
           <div className="fixed inset-0 z-40 flex">
             <div className="w-64 bg-white border-r border-gray-200 p-6">
               <div className="mb-6">
-                <div className="text-2xl font-extrabold text-indigo-600">
-                  TIMS
-                </div>
+                <div className="text-2xl font-extrabold text-indigo-600">TIMS</div>
               </div>
 
               <nav className="space-y-2">
@@ -154,9 +150,7 @@ export default function Dashboard() {
                     onClick={() => setOpen(false)}
                     className={({ isActive }) =>
                       `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium ${
-                        isActive
-                          ? "bg-indigo-50 text-indigo-700"
-                          : "text-gray-700 hover:bg-gray-100"
+                        isActive ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-100"
                       }`
                     }
                   >
@@ -178,7 +172,7 @@ export default function Dashboard() {
         <header className="flex-none bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">
-              Welcome, {user?.username ?? "User"}
+              Welcome, {displayName ?? "User"}
             </h1>
             <div className="text-xs text-gray-500 hidden sm:block">
               {user?.email ?? ""}
@@ -186,11 +180,9 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="text-sm text-gray-600">
-              {user?.role ? user.role.toUpperCase() : ""}
-            </div>
+            <div className="text-sm text-gray-600">{user?.role ? user.role.toUpperCase() : ""}</div>
 
-            {/* 👇 Profile beside Logout */}
+            {/* Profile & Logout */}
             <NavLink
               to="profile"
               className="px-3 py-2 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700"
