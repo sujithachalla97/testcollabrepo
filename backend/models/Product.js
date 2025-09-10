@@ -13,32 +13,39 @@ const ProductSchema = new Schema(
 
     stockLevel: { type: Number, default: 0 },
     reorderPoint: { type: Number, default: 0 },
+    // models/Product.js (only show additions — merge into your existing model)
+    lowStockAcknowledgedAt: { type: Date, default: null }, // when user acknowledged the low-stock alert
+    lowStockAcknowledgedBy: { type: String, default: "" }, // optional userId/name who acknowledged
 
     // 🔹 Supplier details (embedded for now, later can be ref if you want relation)
-    supplierName: { type: String, required: true, trim: true },
-    supplierMail: { 
-      type: String, 
-      required: true, 
-      lowercase: true, 
-      match: [/\S+@\S+\.\S+/, "Invalid email address"] 
+    supplierName: { type: String, trim: true, default: "" },
+    supplierMail: {
+      type: String,
+      lowercase: true,
+      match: [/\S+@\S+\.\S+/, "Invalid email address"],
+      default: "",
     },
-    supplierContact: { type: String, required: true, trim: true },
+    supplierContact: { type: String, trim: true, default: "" },
 
     // 🔹 Order details
     orderDate: { type: Date, default: Date.now },
     quantity: { type: Number, default: 1 },
 
     // 🔹 Product status
-    status: { 
-      type: String, 
-      enum: ["active", "draft", "discontinued"], 
-      default: "active" 
+    status: {
+      type: String,
+      enum: ["active", "draft", "discontinued"],
+      default: "active",
     },
   },
   { timestamps: true }
 );
 
 // Full-text search index
-ProductSchema.index({ productName: "text", description: "text", productCategoryName: "text" });
+ProductSchema.index({
+  productName: "text",
+  description: "text",
+  productCategoryName: "text",
+});
 
 export default model("Product", ProductSchema);

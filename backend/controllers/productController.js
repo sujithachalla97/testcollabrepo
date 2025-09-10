@@ -2,7 +2,9 @@
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import Order from "../models/Order.js";
-import Supplier from "../models/Supplier.js"; // new import for supplier snapshot
+import Supplier from "../models/Supplier.js";
+import Transaction from "../models/Transaction.js";
+ // new import for supplier snapshot
 
 const asArray = v => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
 
@@ -345,5 +347,149 @@ export const bulkRestockWithOrder = async (req, res) => {
       await session.endSession();
     }
     return res.status(500).json({ error: err.message || "Bulk restock failed" });
+  }
+};
+
+export const stockout = async (req, res) => {
+  const payload = req.body || {};
+  const itemsIn = Array.isArray(payload.items) ? payload.items : [];
+  if (itemsIn.length === 0) return res.status(400).json({ error: "Provide items: [{ modelNumber, qty }]" });
+
+  const items = itemsIn
+    .map(it => ({
+      modelNumber: (it.modelNumber || it.model || "").toString(),
+      qty: Math.max(0, Number(it.qty ?? it.quantity ?? 0)),
+      unitCost: Number(it.unitCost ?? 0)
+    }))
+    .filter(it => it.modelNumber && Number.isFinite(it.qty) && it.qty > 0);
+
+  if (items.length === 0) return res.status(400).json({ error: "No valid items" });
+
+  const allowNegative = !!payload.allowNegative;
+  const session = await mongoose.startSession().catch(() => null);
+
+  let createdTx = null;
+  let bulkResult = null;
+
+  try {
+    if (session && session.startTransaction) {
+      await session.withTransaction(async () => {
+        // load current products
+        const modelNumbers = items.map(i => i.modelNumber);
+        const prods = await Product.find({ modelNumber: { $in: modelNumbers } }).session(session);
+        const prodByModel = {};
+        prods.forEach(p => prodByModel[p.modelNumber] = p);
+
+        // validate stock
+        for (const it of items) {
+          const p = prodByModel[it.modelNumber];
+          if (!p) throw new Error(`Product not found: ${it.modelNumber}`);
+          if (!allowNegative && (p.stockLevel ?? 0) < it.qty) {
+            throw new Error(`Insufficient stock for ${it.modelNumber} (have ${p.stockLevel}, need ${it.qty})`);
+          }
+        }
+
+        // Build bulk ops to decrement stock
+        const ops = items.map(it => ({
+          updateOne: {
+            filter: { modelNumber: it.modelNumber },
+            update: { $inc: { stockLevel: -Math.abs(it.qty) } }
+          }
+        }));
+        bulkResult = await Product.bulkWrite(ops, { ordered: false, session });
+
+        // create transaction document if model exists
+        const txItems = items.map(it => {
+          const p = prodByModel[it.modelNumber] || {};
+          return {
+            modelNumber: it.modelNumber,
+            productName: p.productName ?? "",
+            qty: it.qty,
+            unitCost: it.unitCost ?? 0,
+            totalCost: (Number(it.unitCost) || 0) * Number(it.qty || 0),
+            beforeStock: (p.stockLevel ?? 0),
+            afterStock: (p.stockLevel ?? 0) - (it.qty || 0)
+          };
+        });
+
+        const subtotal = txItems.reduce((s, x) => s + (x.totalCost || 0), 0);
+        const txDoc = {
+          type: "stockout",
+          items: txItems,
+          subtotal,
+          notes: payload.notes || "",
+          createdBy: payload.createdBy || null,
+          createdAt: new Date()
+        };
+
+        if (Transaction) {
+          const t = await Transaction.create([txDoc], { session });
+          createdTx = Array.isArray(t) ? t[0] : t;
+        } else {
+          // if no Transaction model, return txDoc in response
+          createdTx = txDoc;
+        }
+      });
+      try { await session.endSession(); } catch (e) {}
+    } else {
+      // no transactions available — best effort
+      // validate & update one-by-one
+      const modelNumbers = items.map(i => i.modelNumber);
+      const prods = await Product.find({ modelNumber: { $in: modelNumbers } }).lean();
+      const prodByModel = {};
+      prods.forEach(p => prodByModel[p.modelNumber] = p);
+
+      for (const it of items) {
+        const p = prodByModel[it.modelNumber];
+        if (!p) return res.status(404).json({ error: `Product not found: ${it.modelNumber}` });
+        if (!allowNegative && (p.stockLevel ?? 0) < it.qty) {
+          return res.status(400).json({ error: `Insufficient stock for ${it.modelNumber}` });
+        }
+      }
+
+      // perform updates
+      const ops = items.map(it => ({
+        updateOne: {
+          filter: { modelNumber: it.modelNumber },
+          update: { $inc: { stockLevel: -Math.abs(it.qty) } }
+        }
+      }));
+      bulkResult = await Product.bulkWrite(ops, { ordered: false });
+
+      const txItems = items.map(it => {
+        const p = prodByModel[it.modelNumber] || {};
+        return {
+          modelNumber: it.modelNumber,
+          productName: p.productName ?? "",
+          qty: it.qty,
+          unitCost: it.unitCost ?? 0,
+          totalCost: (Number(it.unitCost) || 0) * Number(it.qty || 0),
+          beforeStock: (p.stockLevel ?? 0),
+          afterStock: (p.stockLevel ?? 0) - (it.qty || 0)
+        };
+      });
+
+      const subtotal = txItems.reduce((s, x) => s + (x.totalCost || 0), 0);
+      const txDoc = {
+        type: "stockout",
+        items: txItems,
+        subtotal,
+        notes: payload.notes || "",
+        createdBy: payload.createdBy || null,
+        createdAt: new Date()
+      };
+
+      if (Transaction) createdTx = await Transaction.create(txDoc);
+      else createdTx = txDoc;
+    }
+
+    return res.json({ success: true, bulkResult, transaction: createdTx });
+  } catch (err) {
+    console.error("stockout error:", err);
+    if (session && session.inTransaction && session.inTransaction()) {
+      try { await session.abortTransaction(); } catch (e) {}
+      try { await session.endSession(); } catch (e) {}
+    }
+    return res.status(500).json({ error: err.message || "Stockout failed" });
   }
 };
