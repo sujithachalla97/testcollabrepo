@@ -1,5 +1,6 @@
 // src/pages/Products.jsx
 import { useEffect, useState, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "../api/axiosInstance";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -24,6 +25,8 @@ const Icon = ({ name, className = "w-4 h-4", colorClass = "text-gray-600" }) => 
 };
 
 export default function Products() {
+  const navigate = useNavigate();
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,6 +44,19 @@ export default function Products() {
     supplierMail: "",
     supplierContact: "",
   });
+
+  // restock modal
+  const [restockOpen, setRestockOpen] = useState(false);
+  const [restockQty, setRestockQty] = useState(10);
+  const [restockUnitCost, setRestockUnitCost] = useState(0);
+  const [restockModels, setRestockModels] = useState([]); // models to restock
+
+  // stockout modal
+  const [stockoutOpen, setStockoutOpen] = useState(false);
+  const [stockoutQty, setStockoutQty] = useState(1);
+  const [stockoutUnitCost, setStockoutUnitCost] = useState(0);
+  const [stockoutProduct, setStockoutProduct] = useState(null);
+  const [allowNegativeStock, setAllowNegativeStock] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -170,23 +186,30 @@ export default function Products() {
     }
   };
 
-  /* ---------- BULK RESTOCK — now calls server endpoint that creates an Order ---------- */
-  const handleBulkRestock = async () => {
-    const models = Object.keys(selected).filter(Boolean);
-    if (models.length === 0) {
+  /* ---------- BULK RESTOCK — modal dialog (replaces prompt) ---------- */
+  const openRestockModal = (models) => {
+    setRestockModels(models);
+    setRestockQty(10);
+    setRestockUnitCost(0);
+    setRestockOpen(true);
+  };
+
+  const closeRestockModal = () => {
+    setRestockOpen(false);
+    setRestockModels([]);
+  };
+
+  const confirmRestock = async () => {
+    if (!restockModels || restockModels.length === 0) {
       toast.info("No products selected");
       return;
     }
-    const qtyStr = window.prompt(`Enter quantity to add to ${models.length} selected product(s):`, "10");
-    if (!qtyStr) return;
-    const qty = Number(qtyStr);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      toast.error("Enter a valid positive number");
+    if (!Number.isFinite(Number(restockQty)) || Number(restockQty) <= 0) {
+      toast.error("Enter a valid positive quantity");
       return;
     }
 
-    // build payload: items: [{ modelNumber, qty }]
-    const items = models.map((m) => ({ modelNumber: m, qty }));
+    const items = restockModels.map((m) => ({ modelNumber: m, qty: Number(restockQty), unitCost: Number(restockUnitCost || 0) }));
 
     try {
       setLoading(true);
@@ -195,12 +218,79 @@ export default function Products() {
       toast.success(order?.orderNumber ? `Restocked — Order ${order.orderNumber}` : "Restocked (order created)");
       setSelected({});
       await fetchProducts();
+      closeRestockModal();
     } catch (err) {
       console.error("bulk restock error", err);
       toast.error(err.response?.data?.error || "Bulk restock failed");
     } finally {
       setLoading(false);
     }
+  };
+
+  /* ---------- Stockout modal flow (opens dialog, updates UI, creates transaction) ---------- */
+  const openStockoutModal = (product) => {
+    setStockoutProduct(product);
+    setStockoutQty(1);
+    setStockoutUnitCost(0);
+    setAllowNegativeStock(false);
+    setStockoutOpen(true);
+  };
+
+  const closeStockoutModal = () => {
+    setStockoutOpen(false);
+    setStockoutProduct(null);
+  };
+
+  const confirmStockout = async () => {
+    if (!stockoutProduct) return;
+    if (!Number.isFinite(Number(stockoutQty)) || Number(stockoutQty) <= 0) {
+      toast.error("Enter a valid positive quantity");
+      return;
+    }
+
+    const model = stockoutProduct.modelNumber;
+    const qty = Number(stockoutQty);
+    const unitCost = Number(stockoutUnitCost || 0);
+
+    // optimistic update: decrement locally (but keep a copy to rollback on error)
+    const prevProducts = products;
+    setProducts((list) =>
+      list.map((p) =>
+        p.modelNumber === model
+          ? { ...p, stockLevel: (p.stockLevel ?? 0) - qty }
+          : p
+      )
+    );
+    setStockoutOpen(false);
+
+    try {
+      setLoading(true);
+      const payload = {
+        items: [{ modelNumber: model, qty, unitCost }],
+        notes: `Stockout from UI (model ${model})`,
+        allowNegative: allowNegativeStock,
+      };
+      const res = await axios.post("/products/stockout", payload);
+      toast.success("Stockout recorded");
+      // refresh one product row (safer) — fetchProducts or patch single product if needed
+      // quick approach: fetch products to reflect server authoritative state
+      await fetchProducts();
+      // option: navigate to transactions or leave user on products
+      // navigate("/transactions", { state: { fromProducts: true, items: [{ modelNumber: model, productName: stockoutProduct.productName, qty }] } });
+    } catch (err) {
+      console.error("stockout error", err);
+      // rollback optimistic change
+      setProducts(prevProducts);
+      toast.error(err.response?.data?.error || "Stockout failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ---------- Stockout: navigate to /transactions with product data (kept for alternate flow) ---------- */
+  const handleStockoutNavigate = (product) => {
+    // open modal instead of navigating
+    openStockoutModal(product);
   };
 
   /* ---------- product create/update/delete (same as before) ---------- */
@@ -339,7 +429,7 @@ export default function Products() {
               <label className="inline-flex items-center gap-2">
                 <input type="checkbox" checked={Object.keys(selected).length > 0} readOnly /> <span className="text-sm">Selected {Object.keys(selected).length}</span>
               </label>
-              <button onClick={handleBulkRestock} className="px-3 py-1 rounded bg-green-600 text-white">Restock selected</button>
+              <button onClick={() => openRestockModal(Object.keys(selected).filter(Boolean))} className="px-3 py-1 rounded bg-green-600 text-white">Restock selected</button>
               <button onClick={() => setSelected({})} className="px-3 py-1 rounded border">Clear selection</button>
             </div>
             <div className="flex items-center gap-2">
@@ -390,6 +480,8 @@ export default function Products() {
                       <div className="flex gap-2">
                         <button onClick={() => openModal(p)} className="px-3 py-1 rounded bg-yellow-400">Edit</button>
                         <button onClick={() => handleDelete(p.modelNumber)} className="px-3 py-1 rounded bg-red-600 text-white">Delete</button>
+                        <button onClick={() => handleStockoutNavigate(p)} className="px-3 py-1 rounded border">Stockout</button>
+                        <button onClick={() => openRestockModal([p.modelNumber])} className="px-3 py-1 rounded bg-green-500 text-white">Restock</button>
                       </div>
                     </td>
                   </tr>
@@ -415,7 +507,7 @@ export default function Products() {
         </div>
       </div>
 
-      {/* modal for add/edit */}
+      {/* Add/Edit modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
@@ -474,6 +566,80 @@ export default function Products() {
                 <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded">{editingProduct ? "Save" : "Add"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Restock modal */}
+      {restockOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/30" onClick={closeRestockModal} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl p-6 shadow-lg z-10">
+            <header className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Restock {restockModels.length} item(s)</h3>
+              <button onClick={closeRestockModal} className="text-gray-600">✕</button>
+            </header>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-xs text-gray-600">Models</label>
+                <div className="mt-1 text-sm text-gray-700">{restockModels.join(", ")}</div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600">Quantity to add (per item)</label>
+                <input type="number" value={restockQty} onChange={(e) => setRestockQty(Number(e.target.value))} className="w-full border rounded px-3 py-2" />
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600">Unit cost (optional)</label>
+                <input type="number" value={restockUnitCost} onChange={(e) => setRestockUnitCost(Number(e.target.value))} className="w-full border rounded px-3 py-2" />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button onClick={closeRestockModal} className="px-3 py-2 border rounded">Cancel</button>
+                <button onClick={confirmRestock} className="px-3 py-2 bg-green-600 text-white rounded">Confirm Restock</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stockout modal */}
+      {stockoutOpen && stockoutProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/30" onClick={closeStockoutModal} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl p-6 shadow-lg z-10">
+            <header className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Stockout — {stockoutProduct.productName} ({stockoutProduct.modelNumber})</h3>
+              <button onClick={closeStockoutModal} className="text-gray-600">✕</button>
+            </header>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-xs text-gray-600">Current stock</label>
+                <div className="mt-1 text-sm text-gray-700">{stockoutProduct.stockLevel ?? 0}</div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600">Quantity to remove</label>
+                <input type="number" value={stockoutQty} onChange={(e) => setStockoutQty(Number(e.target.value))} className="w-full border rounded px-3 py-2" />
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600">Unit cost (optional)</label>
+                <input type="number" value={stockoutUnitCost} onChange={(e) => setStockoutUnitCost(Number(e.target.value))} className="w-full border rounded px-3 py-2" />
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={allowNegativeStock} onChange={(e) => setAllowNegativeStock(e.target.checked)} /> Allow negative stock
+              </label>
+
+              <div className="flex justify-end gap-2">
+                <button onClick={closeStockoutModal} className="px-3 py-2 border rounded">Cancel</button>
+                <button onClick={confirmStockout} className="px-3 py-2 bg-red-600 text-white rounded">Confirm Stockout</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

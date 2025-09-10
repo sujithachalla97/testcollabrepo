@@ -10,6 +10,7 @@ import Transactions from "./pages/Transactions";
 import Alerts from "./pages/Alerts";
 import Managers from "./pages/Managers";
 import Staff from "./pages/Staff";
+import Profile from "./pages/Profile";
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
     {/* Admin-only */}
     <Route path="users/managers" element={<Managers />} />
     <Route path="users/staff" element={<Staff />} />
+      <Route path="profile" element={<Profile />} />
 
     {/* Default child route */}
     <Route index element={<Products />} />  {/* loads Products by default */}

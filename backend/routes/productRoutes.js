@@ -7,7 +7,8 @@ import {
   updateProduct,
   deleteProduct,
   bulkRestock,
-  bulkRestockWithOrder
+  bulkRestockWithOrder,
+  stockout
 } from "../controllers/productController.js";
 
 const router = express.Router();
@@ -20,5 +21,6 @@ router.patch("/:model", updateProduct);  // update
 router.delete("/:model", deleteProduct); // delete
 router.post("/bulk-restock", bulkRestock);
 router.post("/bulk-restock-order", bulkRestockWithOrder);
+router.post("/stockout", stockout);
 
 export default router;

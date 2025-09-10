@@ -5,7 +5,11 @@ import { connectDB } from "./config/db.js"; // ⬅️ add this
 import authRoutes from "./routes/authRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
 import supplierRoutes from "./routes/supplierRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
+import transactionsRouter from "./routes/transactionRoutes.js";
+import alertRoutes from "./routes/alertsRoutes.js";
+// import the controller
 dotenv.config();
 
 const app = express();
@@ -23,7 +27,10 @@ app.use("/api/auth", authRoutes); //auth routes
 app.use("/api/products", productRoutes);
 app.use("/api/suppliers", supplierRoutes);
 app.use("/api/orders", orderRoutes);
-
+app.use("/api/users", userRoutes);
+app.use("/api/transactions", transactionsRouter); 
+app.use("/alerts", alertsRouter);
+app.use("/api/alerts", alertRoutes); //alerts routes
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
