@@ -1,8 +1,10 @@
 // src/pages/Suppliers.jsx
 import { useEffect, useState, useRef, useMemo } from "react";
+import { Navigate } from "react-router-dom";
 import axios from "../api/axiosInstance";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "../context/AuthContext";
 
 /* small UI bits */
 const Icon = ({ name, className = "w-4 h-4", colorClass = "text-gray-600" }) => {
@@ -35,6 +37,13 @@ function SkeletonRow() {
 }
 
 export default function Suppliers() {
+  const { user } = useAuth();
+
+  // Redirect staff away from Suppliers page
+  if (user?.role === "staff") {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -107,6 +116,7 @@ export default function Suppliers() {
     const onKey = (e) => { if (e.key === "Escape") setModalOpen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize]);
 
   useEffect(() => {

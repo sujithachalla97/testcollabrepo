@@ -3,12 +3,16 @@ import { useEffect, useState } from "react";
 import axios from "../api/axiosInstance";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "../context/AuthContext";
 
 /**
  * Props:
  *  - onOpenRestock(items) optional callback to open restock modal in parent
  */
 export default function Alerts({ onOpenRestock }) {
+  const { user } = useAuth();
+  const isStaff = user?.role === "staff";
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -84,8 +88,13 @@ export default function Alerts({ onOpenRestock }) {
   };
 
   const openRestockFor = (p) => {
+    // runtime guard: staff are not allowed to restock
+    if (isStaff) {
+      toast.error("You don't have permission to create restock orders");
+      return;
+    }
+    // call parent hook if provided
     if (onOpenRestock) return onOpenRestock([{ modelNumber: p.modelNumber, qty: Math.max(1, Math.abs(p.lowBy) || 1), unitCost: 0 }]);
-    // fallback: call restock endpoint directly (optional)
     toast.info("Hook up onOpenRestock prop to open restock modal");
   };
 
@@ -97,7 +106,11 @@ export default function Alerts({ onOpenRestock }) {
           <h2 className="text-2xl font-semibold">Low Stock Alerts</h2>
           <div className="flex gap-3">
             <button onClick={fetchAlerts} className="px-3 py-2 border rounded">Refresh</button>
-            <button onClick={bulkAcknowledge} className="px-3 py-2 bg-indigo-600 text-white rounded">Acknowledge Selected</button>
+
+            {/* bulk acknowledge hidden for staff */}
+            {!isStaff && (
+              <button onClick={bulkAcknowledge} className="px-3 py-2 bg-indigo-600 text-white rounded">Acknowledge Selected</button>
+            )}
           </div>
         </div>
 
@@ -110,10 +123,11 @@ export default function Alerts({ onOpenRestock }) {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="p-2 border w-12"><input type="checkbox" onChange={(e)=> {
+                  {/* selection column hidden for staff */}
+                  {!isStaff && <th className="p-2 border w-12"><input type="checkbox" onChange={(e)=> {
                     if (e.target.checked) setSelected(new Set(items.map(i=>i._id)));
                     else setSelected(new Set());
-                  }} /></th>
+                  }} /></th>}
                   <th className="p-2 border">Product</th>
                   <th className="p-2 border">Stock</th>
                   <th className="p-2 border">Reorder Point</th>
@@ -125,9 +139,11 @@ export default function Alerts({ onOpenRestock }) {
               <tbody>
                 {items.map((p) => (
                   <tr key={p._id} className="border-t">
-                    <td className="p-2 border text-center">
-                      <input type="checkbox" checked={selected.has(p._id)} onChange={()=>toggleSelect(p._id)} />
-                    </td>
+                    {!isStaff && (
+                      <td className="p-2 border text-center">
+                        <input type="checkbox" checked={selected.has(p._id)} onChange={()=>toggleSelect(p._id)} />
+                      </td>
+                    )}
                     <td className="p-2 border">
                       <div className="font-medium">{p.productName || p.modelNumber}</div>
                       <div className="text-xs text-gray-500">{p.modelNumber}</div>
@@ -156,10 +172,15 @@ export default function Alerts({ onOpenRestock }) {
                       )}
                     </td>
                     <td className="p-2 border">
-                      <div className="flex gap-2">
-                        <button onClick={()=>ackSingle(p._id)} className="px-2 py-1 border rounded text-sm">Acknowledge</button>
-                        <button onClick={()=>openRestockFor(p)} className="px-2 py-1 bg-green-600 text-white rounded text-sm">Restock</button>
-                      </div>
+                      {/* Staff: no Restock; Non-staff: show Acknowledge + Restock */}
+                      {!isStaff ? (
+                        <div className="flex gap-2">
+                          <button onClick={()=>ackSingle(p._id)} className="px-2 py-1 border rounded text-sm">Acknowledge</button>
+                          <button onClick={()=>openRestockFor(p)} className="px-2 py-1 bg-green-600 text-white rounded text-sm">Restock</button>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-500">No actions available</div>
+                      )}
                     </td>
                   </tr>
                 ))}

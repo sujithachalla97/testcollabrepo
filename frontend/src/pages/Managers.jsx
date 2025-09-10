@@ -3,8 +3,11 @@ import { useEffect, useState } from "react";
 import axios from "../api/axiosInstance";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "../context/AuthContext";
 
 export default function Managers() {
+  const { user: currentUser } = useAuth();
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -28,63 +31,44 @@ export default function Managers() {
     firstName: "",
     lastName: "",
     phone: "",
+    role: "manager",
   });
 
-  const currentUser = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("user") || "null");
-    } catch {
-      return null;
-    }
-  })();
-  const token = localStorage.getItem("token") || currentUser?.token || null;
-
   useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-    } else {
-      delete axios.defaults.headers.common.Authorization;
-    }
-  }, [token]);
-
-  if (!currentUser || !["admin", "manager"].includes(currentUser.role)) {
-    return (
-      <div className="p-6 bg-gray-50 min-h-screen">
-        <div className="max-w-4xl mx-auto text-center py-12">
-          <h2 className="text-2xl font-semibold mb-2">Access denied</h2>
-          <p className="text-gray-600">You must be logged in as a manager or admin to view this page.</p>
-        </div>
-      </div>
-    );
-  }
+    fetchManagers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchManagers = async () => {
     setLoading(true);
     try {
       const res = await axios.get("/managers").then((r) => r.data);
+      // ensure we only show role === manager items (server may return mixed)
       setItems((res.items || []).filter((u) => u.role === "manager"));
     } catch (err) {
+      console.error("fetch managers", err);
       toast.error(err.response?.data?.error || "Failed to load managers");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchManagers();
-  }, []);
-
   const createManager = async () => {
     if (!form.username || !form.email || !form.password || !form.firstName || !form.lastName) {
       return toast.error("Fill all required fields");
     }
+    if (currentUser?.role !== "admin") {
+      return toast.error("Only admin can create managers");
+    }
     try {
+      // server forces role to 'manager' but we set it explicitly for clarity
       await axios.post("/managers", { ...form, role: "manager" });
       toast.success("Manager created");
       setForm({ username: "", email: "", password: "", firstName: "", lastName: "", phone: "" });
       setShowNew(false);
       fetchManagers();
     } catch (err) {
+      console.error("create manager", err);
       toast.error(err.response?.data?.error || "Failed to create");
     }
   };
@@ -98,42 +82,63 @@ export default function Managers() {
       firstName: mgr.firstName || "",
       lastName: mgr.lastName || "",
       phone: mgr.phone || "",
+      role: mgr.role || "manager",
     });
   };
 
   const saveEdit = async () => {
+    if (!editing) return;
     try {
       const payload = { ...editForm };
       if (!payload.password) delete payload.password; // don’t send empty password
+      // Non-admins must not send role
+      if (currentUser?.role !== "admin") delete payload.role;
       await axios.patch(`/managers/${editing.id}`, payload);
       toast.success("Manager updated");
       setEditing(null);
       fetchManagers();
     } catch (err) {
+      console.error("save edit", err);
       toast.error(err.response?.data?.error || "Failed to update");
     }
   };
 
   const toggleDisable = async (id, disabled) => {
+    if (currentUser?.role !== "admin") return toast.error("Only admin can change enable/disable");
     try {
       await axios.patch(`/managers/${id}/${disabled ? "enable" : "disable"}`);
       toast.success(disabled ? "Enabled" : "Disabled");
       fetchManagers();
-    } catch {
+    } catch (err) {
+      console.error("toggle disable", err);
       toast.error("Failed");
     }
   };
 
   const remove = async (id) => {
+    if (currentUser?.role !== "admin") return toast.error("Only admin can delete");
     if (!confirm("Delete manager? This is permanent.")) return;
     try {
       await axios.delete(`/managers/${id}`);
       toast.success("Deleted");
       fetchManagers();
-    } catch {
+    } catch (err) {
+      console.error("delete manager", err);
       toast.error("Failed to delete");
     }
   };
+
+  // access control: page visible to admin and manager (managers can view)
+  if (!currentUser || !["admin", "manager"].includes(currentUser.role)) {
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="max-w-4xl mx-auto text-center py-12">
+          <h2 className="text-2xl font-semibold mb-2">Access denied</h2>
+          <p className="text-gray-600">You must be logged in as a manager or admin to view this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -164,7 +169,6 @@ export default function Managers() {
           </div>
         )}
 
-        {/* Table */}
         <div className="bg-white shadow rounded border overflow-hidden">
           {loading ? (
             <div className="p-6 text-center">Loading...</div>
@@ -178,8 +182,7 @@ export default function Managers() {
                   <th className="p-2 border">Name</th>
                   <th className="p-2 border">Email</th>
                   <th className="p-2 border">Phone</th>
-                  <th className="p-2 border">Disabled</th>
-                  <th className="p-2 border">Actions</th>
+                 <th className="p-2 border">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -189,15 +192,16 @@ export default function Managers() {
                     <td className="p-2 border">{u.firstName} {u.lastName}</td>
                     <td className="p-2 border">{u.email}</td>
                     <td className="p-2 border">{u.phone}</td>
-                    <td className="p-2 border">{u.disabled ? "Yes" : "No"}</td>
-                    <td className="p-2 border">
+                   <td className="p-2 border">
                       <div className="flex gap-2">
                         {currentUser.role === "admin" && (
                           <>
                             <button onClick={() => openEdit(u)} className="px-2 py-1 border rounded text-sm">Edit</button>
-                            <button onClick={() => toggleDisable(u.id, u.disabled)} className="px-2 py-1 border rounded text-sm">{u.disabled ? "Enable" : "Disable"}</button>
                             <button onClick={() => remove(u.id)} className="px-2 py-1 border rounded text-sm">Delete</button>
                           </>
+                        )}
+                        {currentUser.role === "manager" && (
+                          <span className="text-sm text-gray-500">No actions</span>
                         )}
                       </div>
                     </td>
@@ -222,6 +226,20 @@ export default function Managers() {
               <input placeholder="Phone" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="p-2 border rounded" />
               <input placeholder="Password (leave blank to keep)" type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} className="p-2 border rounded" />
             </div>
+
+            {/* role toggle shown only to admin (though managers page is filtered to managers) */}
+            {currentUser.role === "admin" && (
+              <div className="mt-3">
+                <label className="text-sm text-gray-700">Role</label>
+                <select value={editForm.role} onChange={(e) => setEditForm((s) => ({ ...s, role: e.target.value }))} className="ml-2 px-2 py-1 border rounded">
+                  <option value="manager">manager</option>
+                  <option value="admin">admin</option>
+                  <option value="staff">staff</option>
+                </select>
+                <div className="text-xs text-gray-500 mt-1">Admins can change role</div>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setEditing(null)} className="px-3 py-2 border rounded">Cancel</button>
               <button onClick={saveEdit} className="px-3 py-2 bg-indigo-600 text-white rounded">Save</button>

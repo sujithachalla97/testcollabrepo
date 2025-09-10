@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "../api/axiosInstance";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "../context/AuthContext";
 
 /* small UI icons */
 const Icon = ({ name, className = "w-4 h-4", colorClass = "text-gray-600" }) => {
@@ -26,6 +27,18 @@ const Icon = ({ name, className = "w-4 h-4", colorClass = "text-gray-600" }) => 
 
 export default function Products() {
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+
+  // role helpers
+  const isStaff = currentUser?.role === "staff";
+  const isUser = currentUser?.role === "user";
+  const canModify = !isStaff && !isUser; // admin & manager can modify
+
+  // compute visible columns count for colspan adjustments
+  // if canModify: selection + 7 core cols + actions = 9
+  // if staff: no selection, hide actions -> 7 core cols
+  // if user (read-only): no selection, actions hidden -> 7 core cols (same as staff)
+  const visibleCols = canModify ? 9 : 7;
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +62,7 @@ export default function Products() {
   const [restockOpen, setRestockOpen] = useState(false);
   const [restockQty, setRestockQty] = useState(10);
   const [restockUnitCost, setRestockUnitCost] = useState(0);
-  const [restockModels, setRestockModels] = useState([]); // models to restock
+  const [restockModels, setRestockModels] = useState([]);
 
   // stockout modal
   const [stockoutOpen, setStockoutOpen] = useState(false);
@@ -186,8 +199,9 @@ export default function Products() {
     }
   };
 
-  /* ---------- BULK RESTOCK — modal dialog (replaces prompt) ---------- */
+  /* ---------- BULK RESTOCK — modal dialog ---------- */
   const openRestockModal = (models) => {
+    if (!canModify) return toast.info("No permission");
     setRestockModels(models);
     setRestockQty(10);
     setRestockUnitCost(0);
@@ -200,6 +214,7 @@ export default function Products() {
   };
 
   const confirmRestock = async () => {
+    if (!canModify) return toast.info("No permission");
     if (!restockModels || restockModels.length === 0) {
       toast.info("No products selected");
       return;
@@ -227,8 +242,9 @@ export default function Products() {
     }
   };
 
-  /* ---------- Stockout modal flow (opens dialog, updates UI, creates transaction) ---------- */
+  /* ---------- Stockout flow ---------- */
   const openStockoutModal = (product) => {
+    if (!canModify) return toast.info("No permission");
     setStockoutProduct(product);
     setStockoutQty(1);
     setStockoutUnitCost(0);
@@ -242,6 +258,7 @@ export default function Products() {
   };
 
   const confirmStockout = async () => {
+    if (!canModify) return toast.info("No permission");
     if (!stockoutProduct) return;
     if (!Number.isFinite(Number(stockoutQty)) || Number(stockoutQty) <= 0) {
       toast.error("Enter a valid positive quantity");
@@ -252,7 +269,6 @@ export default function Products() {
     const qty = Number(stockoutQty);
     const unitCost = Number(stockoutUnitCost || 0);
 
-    // optimistic update: decrement locally (but keep a copy to rollback on error)
     const prevProducts = products;
     setProducts((list) =>
       list.map((p) =>
@@ -270,16 +286,11 @@ export default function Products() {
         notes: `Stockout from UI (model ${model})`,
         allowNegative: allowNegativeStock,
       };
-      const res = await axios.post("/products/stockout", payload);
+      await axios.post("/products/stockout", payload);
       toast.success("Stockout recorded");
-      // refresh one product row (safer) — fetchProducts or patch single product if needed
-      // quick approach: fetch products to reflect server authoritative state
       await fetchProducts();
-      // option: navigate to transactions or leave user on products
-      // navigate("/transactions", { state: { fromProducts: true, items: [{ modelNumber: model, productName: stockoutProduct.productName, qty }] } });
     } catch (err) {
       console.error("stockout error", err);
-      // rollback optimistic change
       setProducts(prevProducts);
       toast.error(err.response?.data?.error || "Stockout failed");
     } finally {
@@ -287,14 +298,9 @@ export default function Products() {
     }
   };
 
-  /* ---------- Stockout: navigate to /transactions with product data (kept for alternate flow) ---------- */
-  const handleStockoutNavigate = (product) => {
-    // open modal instead of navigating
-    openStockoutModal(product);
-  };
-
-  /* ---------- product create/update/delete (same as before) ---------- */
+  /* ---------- product create/update/delete ---------- */
   const openModal = (product = null) => {
+    if (!canModify) return toast.info("No permission");
     setEditingProduct(product);
     if (product) {
       setFormData({
@@ -320,6 +326,7 @@ export default function Products() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canModify) return toast.info("No permission");
     if (!formData.productName || !formData.modelNumber) {
       toast.warning("Name and Model required");
       return;
@@ -341,6 +348,7 @@ export default function Products() {
   };
 
   const handleDelete = async (model) => {
+    if (!canModify) return toast.info("No permission");
     if (!window.confirm("Delete product?")) return;
     try {
       await axios.delete(`/products/${model}`);
@@ -351,7 +359,7 @@ export default function Products() {
     }
   };
 
-  /* CSV export (includes supplierName) */
+  /* CSV export (permission-guarded) */
   const toCSV = (items) => {
     const headers = ["productName", "modelNumber", "productCategoryName", "stockLevel", "reorderPoint", "supplierName", "status"];
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -360,6 +368,7 @@ export default function Products() {
     return lines.join("\n");
   };
   const handleExportCSV = () => {
+    if (!canModify) return toast.info("No permission");
     if (!products || products.length === 0) return toast.info("No products to export");
     const csv = toCSV(products);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -417,30 +426,38 @@ export default function Products() {
               <option value="all">All</option>
             </select>
 
-            <button onClick={() => openModal()} className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded shadow">
-              <Icon name="plus" colorClass="text-white" /> Add
-            </button>
+            {canModify && (
+              <button onClick={() => openModal()} className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded shadow">
+                <Icon name="plus" colorClass="text-white" /> Add
+              </button>
+            )}
           </div>
         </div>
 
         <div className="bg-white shadow-sm rounded border overflow-hidden">
           <div className="p-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={Object.keys(selected).length > 0} readOnly /> <span className="text-sm">Selected {Object.keys(selected).length}</span>
-              </label>
-              <button onClick={() => openRestockModal(Object.keys(selected).filter(Boolean))} className="px-3 py-1 rounded bg-green-600 text-white">Restock selected</button>
-              <button onClick={() => setSelected({})} className="px-3 py-1 rounded border">Clear selection</button>
+              {canModify ? (
+                <>
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" checked={Object.keys(selected).length > 0} readOnly /> <span className="text-sm">Selected {Object.keys(selected).length}</span>
+                  </label>
+                  <button onClick={() => openRestockModal(Object.keys(selected).filter(Boolean))} className="px-3 py-1 rounded bg-green-600 text-white">Restock selected</button>
+                  <button onClick={() => setSelected({})} className="px-3 py-1 rounded border">Clear selection</button>
+                </>
+              ) : (
+                <div className="text-sm text-gray-500">{isStaff ? "Staff view-only" : "Read-only"}</div>
+              )}
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={handleExportCSV} className="px-3 py-1 rounded border">Export CSV</button>
+              <button onClick={handleExportCSV} className={`px-3 py-1 rounded border ${!canModify ? "opacity-50 cursor-not-allowed" : ""}`} disabled={!canModify}>Export CSV</button>
             </div>
           </div>
 
           <table className="w-full min-w-[800px]">
             <thead className="bg-gray-50">
               <tr>
-                <th className="border px-3 py-2"><input type="checkbox" onChange={toggleSelectAll} checked={selectAll} /></th>
+                {canModify && <th className="border px-3 py-2"><input type="checkbox" onChange={toggleSelectAll} checked={selectAll} /></th>}
                 <th className="border px-4 py-2 text-left">Name</th>
                 <th className="border px-4 py-2 text-left">Model</th>
                 <th className="border px-4 py-2 text-left">Category</th>
@@ -448,20 +465,21 @@ export default function Products() {
                 <th className="border px-4 py-2 text-left">Stock</th>
                 <th className="border px-4 py-2 text-left">Reorder</th>
                 <th className="border px-4 py-2 text-left">Status</th>
-                <th className="border px-4 py-2 text-left">Actions</th>
+                {/* Actions header hidden for staff & users */}
+                {canModify && <th className="border px-4 py-2 text-left">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="9" className="p-8 text-center">Loading...</td></tr>
+                <tr><td colSpan={visibleCols} className="p-8 text-center">Loading...</td></tr>
               ) : pageItems.length === 0 ? (
-                <tr><td colSpan="9" className="p-8 text-center">No products</td></tr>
+                <tr><td colSpan={visibleCols} className="p-8 text-center">No products</td></tr>
               ) : pageItems.map((p) => {
                 const out = (p.stockLevel ?? 0) === 0;
                 const low = (p.stockLevel ?? 0) <= (p.reorderPoint ?? 0) && !out;
                 return (
                   <tr key={p.modelNumber} className="border-t hover:bg-gray-50">
-                    <td className="px-3 py-3"><input type="checkbox" checked={!!selected[p.modelNumber]} onChange={() => toggleSelect(p.modelNumber)} /></td>
+                    {canModify && <td className="px-3 py-3"><input type="checkbox" checked={!!selected[p.modelNumber]} onChange={() => toggleSelect(p.modelNumber)} /></td>}
                     <td className="px-4 py-3">
                       <div className="font-medium">{p.productName}</div>
                     </td>
@@ -476,14 +494,18 @@ export default function Products() {
                     </td>
                     <td className="px-4 py-3">{p.reorderPoint}</td>
                     <td className="px-4 py-3"><span className="inline-block px-2 py-1 rounded-full text-xs">{p.status}</span></td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button onClick={() => openModal(p)} className="px-3 py-1 rounded bg-yellow-400">Edit</button>
-                        <button onClick={() => handleDelete(p.modelNumber)} className="px-3 py-1 rounded bg-red-600 text-white">Delete</button>
-                        <button onClick={() => handleStockoutNavigate(p)} className="px-3 py-1 rounded border">Stockout</button>
-                        <button onClick={() => openRestockModal([p.modelNumber])} className="px-3 py-1 rounded bg-green-500 text-white">Restock</button>
-                      </div>
-                    </td>
+
+                    {/* Actions column completely removed for staff & users */}
+                    {canModify && (
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <button onClick={() => openModal(p)} className="px-3 py-1 rounded bg-yellow-400">Edit</button>
+                          <button onClick={() => handleDelete(p.modelNumber)} className="px-3 py-1 rounded bg-red-600 text-white">Delete</button>
+                          <button onClick={() => openStockoutModal(p)} className="px-3 py-1 rounded border">Stockout</button>
+                          <button onClick={() => openRestockModal([p.modelNumber])} className="px-3 py-1 rounded bg-green-500 text-white">Restock</button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -507,8 +529,8 @@ export default function Products() {
         </div>
       </div>
 
-      {/* Add/Edit modal */}
-      {modalOpen && (
+      {/* Add/Edit modal: only for canModify */}
+      {modalOpen && canModify && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
           <div className="relative w-full max-w-xl bg-white rounded-2xl p-6 shadow-lg z-10">
@@ -570,8 +592,7 @@ export default function Products() {
         </div>
       )}
 
-      {/* Restock modal */}
-      {restockOpen && (
+      {restockOpen && canModify && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" onClick={closeRestockModal} />
           <div className="relative w-full max-w-md bg-white rounded-2xl p-6 shadow-lg z-10">
@@ -605,8 +626,7 @@ export default function Products() {
         </div>
       )}
 
-      {/* Stockout modal */}
-      {stockoutOpen && stockoutProduct && (
+      {stockoutOpen && stockoutProduct && canModify && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" onClick={closeStockoutModal} />
           <div className="relative w-full max-w-md bg-white rounded-2xl p-6 shadow-lg z-10">
