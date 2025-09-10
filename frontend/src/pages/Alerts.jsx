@@ -16,7 +16,7 @@ export default function Alerts({ onOpenRestock }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(new Set());
-  const [editingRp, setEditingRp] = useState({}); // id -> new rp
+  const [editingRp, setEditingRp] = useState({});
   const [savingRpFor, setSavingRpFor] = useState(null);
 
   const fetchAlerts = async () => {
@@ -77,7 +77,11 @@ export default function Alerts({ onOpenRestock }) {
     try {
       await axios.patch(`/alerts/products/${id}/reorderPoint`, { reorderPoint: rp });
       toast.success("Updated reorder point");
-      setEditingRp((s) => { const copy = {...s}; delete copy[id]; return copy; });
+      setEditingRp((s) => {
+        const copy = { ...s };
+        delete copy[id];
+        return copy;
+      });
       fetchAlerts();
     } catch (err) {
       console.error("save rp", err);
@@ -88,98 +92,143 @@ export default function Alerts({ onOpenRestock }) {
   };
 
   const openRestockFor = (p) => {
-    // runtime guard: staff are not allowed to restock
     if (isStaff) {
       toast.error("You don't have permission to create restock orders");
       return;
     }
-    // call parent hook if provided
-    if (onOpenRestock) return onOpenRestock([{ modelNumber: p.modelNumber, qty: Math.max(1, Math.abs(p.lowBy) || 1), unitCost: 0 }]);
+    if (onOpenRestock)
+      return onOpenRestock([
+        { modelNumber: p.modelNumber, qty: Math.max(1, Math.abs(p.lowBy) || 1), unitCost: 0 },
+      ]);
     toast.info("Hook up onOpenRestock prop to open restock modal");
   };
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <ToastContainer />
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-semibold">Low Stock Alerts</h2>
+          <h2 className="text-3xl font-bold text-gray-800">Low Stock Alerts</h2>
           <div className="flex gap-3">
-            <button onClick={fetchAlerts} className="px-3 py-2 border rounded">Refresh</button>
-
-            {/* bulk acknowledge hidden for staff */}
+            <button
+              onClick={fetchAlerts}
+              className="px-4 py-2 border rounded-lg text-gray-700 bg-white hover:bg-gray-100 shadow-sm"
+            >
+              Refresh
+            </button>
             {!isStaff && (
-              <button onClick={bulkAcknowledge} className="px-3 py-2 bg-indigo-600 text-white rounded">Acknowledge Selected</button>
+              <button
+                onClick={bulkAcknowledge}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
+              >
+                Acknowledge Selected
+              </button>
             )}
           </div>
         </div>
 
-        <div className="bg-white shadow rounded border overflow-hidden">
+        {/* Table */}
+        <div className="bg-white shadow-lg rounded-xl overflow-hidden border">
           {loading ? (
-            <div className="p-6 text-center">Loading...</div>
+            <div className="p-6 text-center text-gray-500">Loading...</div>
           ) : items.length === 0 ? (
-            <div className="p-6 text-center">No low-stock products</div>
+            <div className="p-6 text-center text-gray-500">No low-stock products 🎉</div>
           ) : (
-            <table className="w-full">
-              <thead className="bg-gray-50">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-gray-700">
                 <tr>
-                  {/* selection column hidden for staff */}
-                  {!isStaff && <th className="p-2 border w-12"><input type="checkbox" onChange={(e)=> {
-                    if (e.target.checked) setSelected(new Set(items.map(i=>i._id)));
-                    else setSelected(new Set());
-                  }} /></th>}
-                  <th className="p-2 border">Product</th>
-                  <th className="p-2 border">Stock</th>
-                  <th className="p-2 border">Reorder Point</th>
-                  <th className="p-2 border">Low By</th>
-                  <th className="p-2 border">Acknowledged</th>
-                  <th className="p-2 border">Actions</th>
+                  {!isStaff && (
+                    <th className="p-3 border w-12 text-center">
+                      <input
+                        type="checkbox"
+                        onChange={(e) => {
+                          if (e.target.checked) setSelected(new Set(items.map((i) => i._id)));
+                          else setSelected(new Set());
+                        }}
+                      />
+                    </th>
+                  )}
+                  <th className="p-3 border text-left">Product</th>
+                  <th className="p-3 border text-center">Stock</th>
+                  <th className="p-3 border text-center">Reorder Point</th>
+                  <th className="p-3 border text-center">Low By</th>
+                  <th className="p-3 border text-center">Acknowledged</th>
+                  <th className="p-3 border text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((p) => (
-                  <tr key={p._id} className="border-t">
+                {items.map((p, idx) => (
+                  <tr
+                    key={p._id}
+                    className={`border-t ${
+                      idx % 2 === 0 ? "bg-white" : "bg-gray-50"
+                    } hover:bg-gray-100`}
+                  >
                     {!isStaff && (
-                      <td className="p-2 border text-center">
-                        <input type="checkbox" checked={selected.has(p._id)} onChange={()=>toggleSelect(p._id)} />
+                      <td className="p-3 border text-center">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p._id)}
+                          onChange={() => toggleSelect(p._id)}
+                        />
                       </td>
                     )}
-                    <td className="p-2 border">
-                      <div className="font-medium">{p.productName || p.modelNumber}</div>
+                    <td className="p-3 border">
+                      <div className="font-medium text-gray-800">{p.productName || p.modelNumber}</div>
                       <div className="text-xs text-gray-500">{p.modelNumber}</div>
                     </td>
-                    <td className="p-2 border">{p.stockLevel}</td>
-                    <td className="p-2 border">
-                      <div className="flex items-center gap-2">
+                    <td className="p-3 border text-center">{p.stockLevel}</td>
+                    <td className="p-3 border text-center">
+                      <div className="flex items-center justify-center gap-2">
                         <input
                           value={editingRp[p._id] ?? p.reorderPoint}
                           type="number"
-                          className="w-24 border rounded px-2 py-1 text-sm"
-                          onChange={(e)=> setEditingRp((s)=>({...s, [p._id]: e.target.value}))}
+                          className="w-20 border rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-indigo-500"
+                          onChange={(e) =>
+                            setEditingRp((s) => ({ ...s, [p._id]: e.target.value }))
+                          }
                         />
-                        <button disabled={savingRpFor===p._id} onClick={()=>saveReorderPoint(p._id)} className="px-2 py-1 border rounded text-sm">Save</button>
+                        <button
+                          disabled={savingRpFor === p._id}
+                          onClick={() => saveReorderPoint(p._id)}
+                          className="px-3 py-1 rounded-lg border text-gray-700 hover:bg-gray-200 text-xs"
+                        >
+                          {savingRpFor === p._id ? "Saving..." : "Save"}
+                        </button>
                       </div>
                     </td>
-                    <td className="p-2 border">{p.lowBy}</td>
-                    <td className="p-2 border text-sm">
+                    <td className="p-3 border text-center">{p.lowBy}</td>
+                    <td className="p-3 border text-center">
                       {p.lowStockAcknowledgedAt ? (
                         <div>
-                          <div>Ack at {new Date(p.lowStockAcknowledgedAt).toLocaleString()}</div>
+                          <div className="text-gray-700">
+                            {new Date(p.lowStockAcknowledgedAt).toLocaleString()}
+                          </div>
                           <div className="text-xs text-gray-500">{p.lowStockAcknowledgedBy}</div>
                         </div>
                       ) : (
-                        <div className="text-sm text-red-600">Unacknowledged</div>
+                        <span className="text-sm font-medium text-red-600">Unacknowledged</span>
                       )}
                     </td>
-                    <td className="p-2 border">
-                      {/* Staff: no Restock; Non-staff: show Acknowledge + Restock */}
+                    <td className="p-3 border text-center">
                       {!isStaff ? (
-                        <div className="flex gap-2">
-                          <button onClick={()=>ackSingle(p._id)} className="px-2 py-1 border rounded text-sm">Acknowledge</button>
-                          <button onClick={()=>openRestockFor(p)} className="px-2 py-1 bg-green-600 text-white rounded text-sm">Restock</button>
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            onClick={() => ackSingle(p._id)}
+                            className="px-3 py-1 rounded-lg border text-gray-700 hover:bg-gray-200 text-xs"
+                          >
+                            Acknowledge
+                          </button>
+                          <button
+                            onClick={() => openRestockFor(p)}
+                            className="px-3 py-1 rounded-lg bg-green-600 text-white hover:bg-green-700 text-xs"
+                          >
+                            Restock
+                          </button>
                         </div>
                       ) : (
-                        <div className="text-xs text-gray-500">No actions available</div>
+                        <span className="text-xs text-gray-500">No actions</span>
                       )}
                     </td>
                   </tr>

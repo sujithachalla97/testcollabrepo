@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import React, { useState } from "react";
 import axios from "../api/axiosInstance";
-import { useAuth } from "../context/AuthContext"; // ensure path matches your project
+import { useAuth } from "../context/AuthContext"; // <- matches your AuthContext file
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 
@@ -26,7 +26,6 @@ export default function Login() {
       const res = await axios.post("/auth/login", { email, password }).then((r) => r.data);
       console.log("LOGIN response:", res);
 
-      // server must return token and user
       const token = res.token || res.data?.token || res?.token;
       const user = res.user || res.data?.user || res?.user;
 
@@ -37,22 +36,24 @@ export default function Login() {
         return;
       }
 
-      // call context login to persist and set axios header
+      // persist via AuthContext (this should also sync storage/header via your lib/auth)
       try {
-        // some AuthContexts expect (email, password) while yours expects an object — keep your working call
         login({ user, token });
       } catch (ctxErr) {
-        // if login signature is different, still attempt to set localStorage as fallback
         console.warn("AuthContext.login threw, falling back to direct set:", ctxErr);
         localStorage.setItem("user", JSON.stringify(user));
         localStorage.setItem("token", token);
-        axios.defaults.headers.common.Authorization = `Bearer ${token}`;
       }
 
-      console.log("localStorage user:", localStorage.getItem("user"));
-      console.log("localStorage token:", localStorage.getItem("token"));
+      // Ensure axios header for immediate subsequent requests
+      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
-      navigate("/dashboard");
+      // redirect based on role
+      if ((user.role || "").toLowerCase() === "staff") {
+        navigate("/staff");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err) {
       console.error("Login error:", err);
       const msg = err?.response?.data?.msg || err?.response?.data?.error || err?.message || "Login failed";
@@ -87,9 +88,7 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
-              </label>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
               <input
                 id="email"
                 name="email"
@@ -104,9 +103,7 @@ export default function Login() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
               <div className="mt-1 relative">
                 <input
                   id="password"
@@ -130,13 +127,6 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-sm">
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" className="rounded border-gray-200" />
-                <span className="text-gray-600">Remember me</span>
-              </label>
-              <a href="#" className="text-indigo-600 hover:underline">Forgot password?</a>
-            </div>
 
             <div>
               <button

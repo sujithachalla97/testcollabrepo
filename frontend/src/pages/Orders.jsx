@@ -1,5 +1,5 @@
 // src/pages/Orders.jsx
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import axios from "../api/axiosInstance";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -12,38 +12,7 @@ import "react-toastify/dist/ReactToastify.css";
  */
 
 const DEFAULT_LIMIT = 10;
-
 const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-const orderToCSV = (order) => {
-  const headers = ["orderNumber", "type", "modelNumber", "productName", "qty", "unitCost", "totalCost", "supplierName"];
-  const rows = [headers.join(",")];
-  for (const it of order.items || []) {
-    const row = [
-      esc(order.orderNumber),
-      esc(order.type),
-      esc(it.modelNumber),
-      esc(it.productName),
-      esc(it.qty),
-      esc(it.unitCost),
-      esc(it.totalCost ?? (it.qty || 0) * (it.unitCost || 0)),
-      esc(it.productSnapshot?.supplierName || order.supplierResolved || order.supplierName || ""),
-    ];
-    rows.push(row.join(","));
-  }
-  return rows.join("\n");
-};
-
-const exportCSV = (filename, text) => {
-  const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-};
 
 export default function Orders() {
   const [orders, setOrders] = useState([]);
@@ -98,6 +67,70 @@ export default function Orders() {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  // ---- CSV helpers (INSIDE component so they can access state) ----
+  const exportCSV = (filename, text) => {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const orderItemsRows = (order) => {
+    const rows = [];
+    for (const it of order.items || []) {
+      const row = [
+        esc(order.orderNumber),
+        esc(order.type),
+        esc(it.modelNumber),
+        esc(it.productName),
+        esc(it.qty),
+        esc(it.unitCost),
+        esc(it.totalCost ?? (it.qty || 0) * (it.unitCost || 0)),
+        esc(it.productSnapshot?.supplierName || order.supplierResolved || order.supplierName || ""),
+      ];
+      rows.push(row.join(","));
+    }
+    return rows;
+  };
+
+  const handleExportVisible = () => {
+    if (!orders || orders.length === 0) {
+      toast.info("No orders to export");
+      return;
+    }
+
+    const headers = ["orderNumber", "type", "modelNumber", "productName", "qty", "unitCost", "totalCost", "supplierName"];
+    const lines = [headers.join(",")];
+
+    for (const ord of orders) {
+      const rows = orderItemsRows(ord);
+      if (rows.length === 0) {
+        const emptyRow = [
+          esc(ord.orderNumber),
+          esc(ord.type),
+          "", // modelNumber
+          "", // productName
+          0,
+          0,
+          0,
+          esc(ord.supplierResolved || ord.supplierName || ""),
+        ].join(",");
+        lines.push(emptyRow);
+      } else {
+        lines.push(...rows);
+      }
+    }
+
+    exportCSV(`orders-page${page}-${Date.now()}.csv`, lines.join("\n"));
+    toast.success("Visible orders exported");
+  };
+  // ---- end CSV helpers ----
+
   const supplierFor = (o) =>
     o.supplierResolved ||
     o.supplierName ||
@@ -105,32 +138,23 @@ export default function Orders() {
     "-";
 
   const handleInvoice = async (order) => {
-  if (!order?._id) return;
-  try {
-    const res = await axios.get(`/orders/${order._id}/invoice`, {
-      responseType: "blob", // important for binary
-    });
-    const blob = new Blob([res.data], { type: "application/pdf" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `invoice-${order.orderNumber}.pdf`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    toast.success("Invoice generated");
-  } catch (err) {
-    console.error("invoice error", err);
-    toast.error("Failed to generate invoice");
-  }
-};
-
-
-  const handleExportVisible = () => {
-    if (!orders.length) return toast.info("No orders to export");
-    // combine CSV rows of visible orders
-    const combined = orders.map(orderToCSV).join("\n");
-    exportCSV(`orders-page${page}-${Date.now()}.csv`, combined);
-    toast.success("Visible orders exported");
+    if (!order?._id) return;
+    try {
+      const res = await axios.get(`/orders/${order._id}/invoice`, {
+        responseType: "blob", // important for binary
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${order.orderNumber}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("Invoice generated");
+    } catch (err) {
+      console.error("invoice error", err);
+      toast.error("Failed to generate invoice");
+    }
   };
 
   // fetch fresh order details for modal
@@ -261,7 +285,7 @@ export default function Orders() {
                 onClick={handleExportVisible}
                 className="px-4 py-2 bg-green-600 text-white rounded text-sm"
               >
-                Export{" "}
+                Export
               </button>
             </div>
           </div>
@@ -307,9 +331,7 @@ export default function Orders() {
                     <td className="px-4 py-3">{supplierFor(o)}</td>
                     <td className="px-4 py-3">{o.status}</td>
                     <td className="px-4 py-3">
-                      {o.createdAt
-                        ? new Date(o.createdAt).toLocaleString()
-                        : "-"}
+                      {o.createdAt ? new Date(o.createdAt).toLocaleString() : "-"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
@@ -318,12 +340,6 @@ export default function Orders() {
                           className="px-3 py-1 rounded bg-indigo-600 text-white text-sm"
                         >
                           View
-                        </button>
-                        <button
-                          onClick={() => handleExportOrder(o)}
-                          className="px-3 py-1 rounded border text-sm"
-                        >
-                          Export
                         </button>
                       </div>
                     </td>
@@ -341,9 +357,7 @@ export default function Orders() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                setPage(1);
-              }}
+              onClick={() => setPage(1)}
               disabled={page === 1}
               className="px-2 py-1 border rounded"
             >
@@ -365,12 +379,7 @@ export default function Orders() {
                 max={totalPages}
                 value={page}
                 onChange={(e) =>
-                  setPage(
-                    Math.max(
-                      1,
-                      Math.min(totalPages, Number(e.target.value) || 1)
-                    )
-                  )
+                  setPage(Math.max(1, Math.min(totalPages, Number(e.target.value) || 1)))
                 }
                 className="ml-2 w-16 text-sm"
               />
@@ -467,9 +476,7 @@ export default function Orders() {
             <div className="mt-4 flex justify-between items-center">
               <div className="text-sm text-gray-600">
                 Created:{" "}
-                {detailOrder.createdAt
-                  ? new Date(detailOrder.createdAt).toLocaleString()
-                  : "-"}
+                {detailOrder.createdAt ? new Date(detailOrder.createdAt).toLocaleString() : "-"}
               </div>
               <div className="text-sm font-medium">
                 Subtotal: {detailOrder.subtotal ?? 0}

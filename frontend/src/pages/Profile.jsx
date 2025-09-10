@@ -1,3 +1,4 @@
+// src/pages/Profile.jsx
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -5,8 +6,13 @@ import axios from "../api/axiosInstance";
 import { toast } from "react-toastify";
 
 export default function Profile() {
-  const { user, setUser } = useAuth();
+  const auth = useAuth();
+  const ctxUser = auth?.user ?? null;
+  const setCtxUser = typeof auth?.setUser === "function" ? auth.setUser : null;
   const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     username: "",
     email: "",
@@ -16,52 +22,99 @@ export default function Profile() {
     phone: "",
   });
 
-  // 🔹 Fetch latest user data on mount
+  // normalize various API response shapes to return the user object
+  const normalizeUser = (payload) => {
+    if (!payload) return null;
+    if (payload.user) return payload.user;
+    if (payload.data) return payload.data;
+    if (payload.success && payload.data) return payload.data;
+    return payload;
+  };
+
+  // fetch canonical current user (backend: GET /auth/me)
   useEffect(() => {
-    const fetchUser = async () => {
+    let mounted = true;
+    const fetchMe = async () => {
+      setLoading(true);
       try {
-        const userId = user._id || user.id;
-        const { data } = await axios.get(`/users/${userId}`);
-        setForm({
-          username: data.username || "",
-          email: data.email || "",
-          password: "",
-          firstName: data.firstName || "",
-          lastName: data.lastName || "",
-          phone: data.phone || "",
-        });
+        const res = await axios.get("/auth/me");
+        const user = normalizeUser(res.data);
+        if (!mounted) return;
+        if (user) {
+          setForm((f) => ({
+            ...f,
+            username: user.username || "",
+            email: user.email || "",
+            firstName: user.firstName || "",
+            lastName: user.lastName || "",
+            phone: user.phone || "",
+            password: "",
+          }));
+          if (setCtxUser) setCtxUser(user);
+        } else if (ctxUser) {
+          // fallback to context if backend didn't return user object
+          setForm((f) => ({
+            ...f,
+            username: ctxUser.username || "",
+            email: ctxUser.email || "",
+            firstName: ctxUser.firstName || "",
+            lastName: ctxUser.lastName || "",
+            phone: ctxUser.phone || "",
+            password: "",
+          }));
+        }
       } catch (err) {
+        console.error("fetch profile", err);
         toast.error("Failed to load profile");
+      } finally {
+        if (mounted) setLoading(false);
       }
     };
-    fetchUser();
-  }, [user]);
+    fetchMe();
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setForm((s) => ({ ...s, [name]: value }));
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
+    setSaving(true);
     try {
-      const userId = user._id || user.id;
       const payload = { ...form };
-      if (!payload.password) delete payload.password; // don’t send blank password
+      if (!payload.password) delete payload.password; // don't send blank password
 
-      const res = await axios.put(`/users/${userId}`, payload);
+      // PATCH canonical endpoint (backend has router.patch('/me', protect, updateMe))
+      const res = await axios.patch("/auth/me", payload);
+      const updated = normalizeUser(res.data);
 
-      if (res.status === 200) {
-        setUser(res.data); // update context with fresh user
-        toast.success("Profile updated successfully ✅");
-        setTimeout(() => navigate("/dashboard"), 1200); // go back after toast
-      } else {
-        toast.error("Update failed ❌");
+      if (updated) {
+        // update context (so dashboard header updates)
+        if (setCtxUser) setCtxUser(updated);
+        toast.success("Profile updated ✅");
+        setForm((s) => ({ ...s, password: "" })); // clear pw field
+        setTimeout(() => navigate("/dashboard"), 800);
+        return;
       }
+
+      // fallback: if server didn't return user, re-fetch canonical user
+      const ref = await axios.get("/auth/me");
+      const refUser = normalizeUser(ref.data);
+      if (refUser && setCtxUser) setCtxUser(refUser);
+      toast.success("Profile updated");
+      setTimeout(() => navigate("/dashboard"), 800);
     } catch (err) {
       console.error("Update error:", err.response?.data || err.message);
-      toast.error("Update failed ❌");
+      toast.error(err.response?.data?.error || "Update failed ❌");
+    } finally {
+      setSaving(false);
     }
   };
+
+  if (loading) return <div className="p-4">Loading profile...</div>;
 
   return (
     <div className="max-w-2xl">
@@ -137,9 +190,10 @@ export default function Profile() {
 
         <button
           type="submit"
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+          disabled={saving}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-60"
         >
-          Save Changes
+          {saving ? "Saving..." : "Save Changes"}
         </button>
       </form>
     </div>
