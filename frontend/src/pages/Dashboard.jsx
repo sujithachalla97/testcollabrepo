@@ -26,6 +26,11 @@ export default function Dashboard() {
     { to: "users/staff", label: "Staff" },
   ];
 
+  const isStaff = user?.role === "staff";
+
+  // hide suppliers for staff
+  const visibleNavItems = navItems.filter((i) => !(isStaff && i.to === "suppliers"));
+
   const displayName = (() => {
     if (!user) return null;
     const firstLast = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
@@ -48,7 +53,7 @@ export default function Dashboard() {
             </div>
 
             <nav className="space-y-2">
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
@@ -143,7 +148,7 @@ export default function Dashboard() {
               </div>
 
               <nav className="space-y-2">
-                {navItems.map((item) => (
+                {visibleNavItems.map((item) => (
                   <NavLink
                     key={item.to}
                     to={item.to}

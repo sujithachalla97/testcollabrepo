@@ -113,17 +113,7 @@ export default function Staff() {
     }
   };
 
-  const toggleDisable = async (id, disabled) => {
-    try {
-      await axios.patch(`/staff/${id}/${disabled ? "enable" : "disable"}`);
-      toast.success(disabled ? "Enabled" : "Disabled");
-      fetchStaff();
-    } catch (err) {
-      console.error("toggle disable", err);
-      toast.error("Failed");
-    }
-  };
-
+  
   const remove = async (id) => {
     if (!confirm("Delete staff? This is permanent.")) return;
     try {
@@ -181,7 +171,7 @@ export default function Staff() {
                   <th className="p-2 border">Name</th>
                   <th className="p-2 border">Email</th>
                   <th className="p-2 border">Phone</th>
-                  <th className="p-2 border">Disabled</th>
+                 
                   <th className="p-2 border">Actions</th>
                 </tr>
               </thead>
@@ -192,7 +182,7 @@ export default function Staff() {
                     <td className="p-2 border">{s.firstName} {s.lastName}</td>
                     <td className="p-2 border">{s.email}</td>
                     <td className="p-2 border">{s.phone}</td>
-                    <td className="p-2 border">{s.disabled ? "Yes" : "No"}</td>
+                  
                     <td className="p-2 border">
                       <div className="flex gap-2">
                         {["admin", "manager"].includes(currentUser.role) && (
@@ -201,7 +191,6 @@ export default function Staff() {
                             {/* disable/enable and delete visible only to admin */}
                             {currentUser.role === "admin" ? (
                               <>
-                                <button onClick={()=>toggleDisable(s.id, s.disabled)} className="px-2 py-1 border rounded text-sm">{s.disabled ? "Enable" : "Disable"}</button>
                                 <button onClick={()=>remove(s.id)} className="px-2 py-1 border rounded text-sm">Delete</button>
                               </>
                             ) : null}
