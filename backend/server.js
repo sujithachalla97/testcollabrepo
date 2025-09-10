@@ -9,6 +9,9 @@ import userRoutes from "./routes/userRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import transactionsRouter from "./routes/transactionRoutes.js";
 import alertRoutes from "./routes/alertsRoutes.js";
+
+import managerRoutes from "./routes/managerRoutes.js";
+import staffRoutes from "./routes/staffRouter.js";
 // import the controller
 dotenv.config();
 
@@ -29,8 +32,10 @@ app.use("/api/suppliers", supplierRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/transactions", transactionsRouter); 
-app.use("/alerts", alertsRouter);
+
 app.use("/api/alerts", alertRoutes); //alerts routes
+app.use("/api/managers", managerRoutes); //manager routes
+app.use("/api/staff", staffRoutes); //staff routes
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
