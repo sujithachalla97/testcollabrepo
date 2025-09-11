@@ -1,7 +1,7 @@
 // controllers/orderController.js
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
-import PDFDocument from "pdfkit"; 
+import PDFDocument from "pdfkit";
 
 /* ----------------- helpers ----------------- */
 
@@ -20,9 +20,9 @@ const fillItemsWithSnapshots = async (items = []) => {
   if (!Array.isArray(items) || items.length === 0) return items;
 
   // collect search buckets
-  const ids = items.map(it => it.productId).filter(Boolean);
-  const modelNumbers = items.map(it => it.modelNumber).filter(Boolean);
-  const names = items.map(it => it.productName).filter(Boolean);
+  const ids = items.map((it) => it.productId).filter(Boolean);
+  const modelNumbers = items.map((it) => it.modelNumber).filter(Boolean);
+  const names = items.map((it) => it.productName).filter(Boolean);
 
   // build query ORs but avoid empty arrays
   const or = [];
@@ -42,15 +42,34 @@ const fillItemsWithSnapshots = async (items = []) => {
   }
 
   // attach snapshot for each item using best matching key
-  return items.map(it => {
+  return items.map((it) => {
     let p = null;
     if (it.productId && prodMap.has(String(it.productId))) p = prodMap.get(String(it.productId));
     else if (it.modelNumber && prodMap.has(it.modelNumber)) p = prodMap.get(it.modelNumber);
     else if (it.productName && prodMap.has(it.productName)) p = prodMap.get(it.productName);
     // fallback: keep existing snapshot if any
-    const snapshot = p ? buildProductSnapshot(p) : (it.productSnapshot || null);
+    const snapshot = p ? buildProductSnapshot(p) : it.productSnapshot || null;
     return { ...it, productSnapshot: snapshot };
   });
+};
+
+/**
+ * Apply deleted filter so that:
+ * - deleted=true returns only deleted documents
+ * - deleted!=true (default) returns documents where deleted is false OR missing
+ *
+ * This merges safely with existing query objects by pushing into $and when necessary.
+ */
+const applyDeletedFilter = (queryObj, deletedFlag) => {
+  if (deletedFlag === "true") {
+    // only deleted docs
+    queryObj.deleted = true;
+  } else {
+    // include docs where deleted is false OR field missing
+    // use $and to avoid clobbering existing $or search
+    if (!queryObj.$and) queryObj.$and = [];
+    queryObj.$and.push({ $or: [{ deleted: false }, { deleted: { $exists: false } }] });
+  }
 };
 
 /* ----------------- controllers ----------------- */
@@ -77,6 +96,7 @@ export const createOrder = async (req, res) => {
 };
 
 // List orders (pagination + supplierResolved fallback)
+// kept for backward compatibility if used elsewhere
 export const listOrders = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
@@ -93,36 +113,79 @@ export const listOrders = async (req, res) => {
     if (req.query.type && req.query.type !== "all") filter.type = req.query.type;
     if (req.query.status && req.query.status !== "all") filter.status = req.query.status;
 
+    // apply deleted filter robustly (treat missing as false)
+    applyDeletedFilter(filter, req.query.deleted);
+
     const [items, total] = await Promise.all([
       Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Order.countDocuments(filter),
     ]);
 
     // supplierResolved best-effort: snapshot -> supplierName -> live lookup by first item's modelNumber
-    const normalized = await Promise.all(items.map(async it => {
-      const fromSnapshot = it.items?.[0]?.productSnapshot?.supplierName || it.supplierName || null;
-      if (fromSnapshot) return { ...it, supplierResolved: fromSnapshot };
+    const normalized = await Promise.all(
+      items.map(async (it) => {
+        const fromSnapshot = it.items?.[0]?.productSnapshot?.supplierName || it.supplierName || null;
+        if (fromSnapshot) return { ...it, supplierResolved: fromSnapshot };
 
-      // try live lookup using first item's identifiers
-      const first = it.items?.[0];
-      if (first) {
-        const pid = first.productId || null;
-        const mn = first.modelNumber || null;
-        const name = first.productName || null;
-        let p = null;
-        if (pid) p = await Product.findById(pid).lean().catch(()=>null);
-        if (!p && mn) p = await Product.findOne({ modelNumber: mn }).lean().catch(()=>null);
-        if (!p && name) p = await Product.findOne({ $or: [{ productName: name }, { name: name }] }).lean().catch(()=>null);
-        if (p) return { ...it, supplierResolved: p.supplierName || null };
-      }
+        // try live lookup using first item's identifiers
+        const first = it.items?.[0];
+        if (first) {
+          const pid = first.productId || null;
+          const mn = first.modelNumber || null;
+          const name = first.productName || null;
+          let p = null;
+          if (pid) p = await Product.findById(pid).lean().catch(() => null);
+          if (!p && mn) p = await Product.findOne({ modelNumber: mn }).lean().catch(() => null);
+          if (!p && name) p = await Product.findOne({ $or: [{ productName: name }, { name: name }] }).lean().catch(() => null);
+          if (p) return { ...it, supplierResolved: p.supplierName || null };
+        }
 
-      return { ...it, supplierResolved: null };
-    }));
+        return { ...it, supplierResolved: null };
+      })
+    );
 
     res.json({ page, limit, total, items: normalized });
   } catch (err) {
     console.error("listOrders error:", err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /orders (supports deleted=true)
+export const getOrders = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, q = "", type, status, deleted = "false" } = req.query;
+
+    const query = {};
+
+    // search
+    if (q) {
+      query.$or = [
+        { orderNumber: new RegExp(q, "i") },
+        { notes: new RegExp(q, "i") },
+        { "items.productName": new RegExp(q, "i") },
+        { "items.modelNumber": new RegExp(q, "i") },
+      ];
+    }
+
+    // filters
+    if (type) query.type = type;
+    if (status) query.status = status;
+
+    // apply deleted filter: treats missing deleted as false
+    applyDeletedFilter(query, deleted);
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [items, total] = await Promise.all([
+      Order.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+      Order.countDocuments(query),
+    ]);
+
+    res.json({ page: Number(page), limit: Number(limit), total, items });
+  } catch (err) {
+    console.error("getOrders error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -141,9 +204,9 @@ export const getOrder = async (req, res) => {
       const mn = first.modelNumber || null;
       const name = first.productName || null;
       let p = null;
-      if (pid) p = await Product.findById(pid).lean().catch(()=>null);
-      if (!p && mn) p = await Product.findOne({ modelNumber: mn }).lean().catch(()=>null);
-      if (!p && name) p = await Product.findOne({ $or: [{ productName: name }, { name: name }] }).lean().catch(()=>null);
+      if (pid) p = await Product.findById(pid).lean().catch(() => null);
+      if (!p && mn) p = await Product.findOne({ modelNumber: mn }).lean().catch(() => null);
+      if (!p && name) p = await Product.findOne({ $or: [{ productName: name }, { name: name }] }).lean().catch(() => null);
       if (p) {
         // attach snapshot in response (doesn't persist)
         o.items[0].productSnapshot = buildProductSnapshot(p);
@@ -180,14 +243,63 @@ export const updateOrder = async (req, res) => {
   }
 };
 
-// Delete order
+// Soft Delete order (marks deleted=true, sets deletedAt & deletedBy)
 export const deleteOrder = async (req, res) => {
   try {
-    const order = await Order.findByIdAndDelete(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
-    res.json({ message: "Order deleted" });
+
+    // idempotent: if already deleted, just return success
+    if (order.deleted) {
+      return res.json({ message: "Order already deleted" });
+    }
+
+    order.deleted = true;
+    order.deletedAt = new Date();
+    // attach user id if available (requires auth middleware that sets req.user)
+    if (req.user && req.user.id) order.deletedBy = req.user.id;
+    await order.save();
+
+    res.json({ message: "Order marked as deleted" });
   } catch (err) {
     console.error("deleteOrder error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Restore order (undo soft-delete)
+export const restoreOrder = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    if (!order.deleted) {
+      return res.json({ message: "Order is not deleted" });
+    }
+
+    order.deleted = false;
+    order.deletedAt = null;
+    order.deletedBy = null;
+    await order.save();
+
+    res.json({ message: "Order restored" });
+  } catch (err) {
+    console.error("restoreOrder error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Hard purge (permanently remove) - use with caution, restrict to admins
+export const purgeOrder = async (req, res) => {
+  try {
+    // optionally protect with role check outside this controller
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    await Order.findByIdAndDelete(req.params.id);
+    res.json({ message: "Order permanently deleted" });
+  } catch (err) {
+    console.error("purgeOrder error:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -221,7 +333,7 @@ export const getOrderInvoice = async (req, res) => {
     };
 
     // prepare items table (ensure numbers)
-    const items = (order.items || []).map(it => ({
+    const items = (order.items || []).map((it) => ({
       model: it.modelNumber || "",
       name: it.productName || it.productSnapshot?.productName || "",
       qty: Number(it.qty || 0),
@@ -246,7 +358,6 @@ export const getOrderInvoice = async (req, res) => {
     doc.pipe(res);
 
     // helpers
-    const right = (x) => doc.text(x, { align: "right" });
     const currency = (v) => `₹ ${Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     // --- Header: logo/company
@@ -255,10 +366,7 @@ export const getOrderInvoice = async (req, res) => {
       // If you want to embed remote logo, fetch it and use doc.image(buffer)... (left as optional)
       doc.rect(40, topY, 120, 50).stroke(); // placeholder box if no logo embedding
     } else {
-      doc
-        .fontSize(18)
-        .font("Helvetica-Bold")
-        .text(company.name, 40, topY);
+      doc.fontSize(18).font("Helvetica-Bold").text(company.name, 40, topY);
     }
 
     // company contact (right side)
